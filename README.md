@@ -1,24 +1,35 @@
-# TraveRing 🚨
+# TraveRing 🛎️🗺️
 
-A React Native travel alarm: Wake up when you’re near your destination!
-- Tap on the map to set your stop.
-- Configurable alarm radius.
-- Alarm with vibration, sound, and on-screen alert.
+**TraveRing** is a proximity-based alert app built with **React Native + Expo**.  
+Set a location on the map, define a radius, and get alerted when you approach that area.
 
-Built with Expo, react-native-maps, and Expo Location API.
-
-## Getting Started
-
-1. Install [Expo CLI](https://docs.expo.dev/get-started/installation/).
-2. Clone this repo and run `npm install`.
-3. Put your alarm audio in `assets/alarm.mp3`.
-4. Run `npx expo start` to open in Expo Go.
+Perfect for commuters, travelers, and anyone who needs geo-based reminders.
 
 ---
 
-**Features:**
-- Live map tracking
-- Destination marker & radius
-- Sound and vibration alarm
+## 🚀 Features
 
-Enjoy!
+- 📍 **Tap to Set Location**  
+  Instantly choose any spot on the map as your target zone.
+
+- 📏 **Custom Alert Radius**  
+  Set your preferred distance (in meters) for precise proximity alerts.
+
+- 🔔 **Smart Notification Trigger**  
+  Get notified automatically when you're within range — no need to constantly check.
+
+- 🧭 **Live Location Tracking**  
+  Tracks your movement in real time and keeps the alert updated.
+
+- ⚡ **Runs with Expo Go**  
+  No need to build the app — just scan and go.
+
+---
+
+## 📦 Installation
+
+```bash
+git clone https://github.com/daks19/TraveRing.git
+cd TraveRing
+npm install
+npx expo start
