@@ -1,20 +1,59 @@
+import { LogBox } from 'react-native';
+LogBox.ignoreAllLogs(true);
+
 import React, { useEffect, useState, useRef } from 'react';
-import { StyleSheet, View, Text, Alert, Vibration, Button, TextInput, Platform } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import {
+  StyleSheet, View, Text, Alert, Vibration, Platform,
+  KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard,
+  StatusBar, Appearance, useColorScheme, TouchableOpacity
+} from 'react-native';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { Audio } from 'expo-av';
 
+import MapSection from './components/MapSection';
+import AlarmControls from './components/AlarmControls';
+
+
+const LIGHT_COLORS = {
+  bg: '#F3F4F6',
+  card: '#fff',
+  text: '#222',
+  faintText: '#bbb',
+  accent: '#2F80ED',
+  buttonBg: '#28a745',
+  buttonStop: '#f94b4b',
+  input: '#f8f8fb',
+  border: '#e4e2f4'
+};
+const DARK_COLORS = {
+  bg: '#18192B',
+  card: '#262840',
+  text: '#f0f2fc',
+  faintText: '#678',
+  accent: '#7BB7FF',
+  buttonBg: '#47d37d',
+  buttonStop: '#ff4e65',
+  input: '#232544',
+  border: '#363973'
+};
+
 export default function App() {
+  const systemScheme = useColorScheme();
+  const [forceScheme, setForceScheme] = useState(null);
+  const theme = forceScheme || systemScheme || 'light';
+  const colors = theme === "dark" ? DARK_COLORS : LIGHT_COLORS;
+
   const [location, setLocation] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const [destination, setDestination] = useState(null);
-  const [alarmRadius, setAlarmRadius] = useState('500');
+  const [alarmRadius, setAlarmRadius] = useState(500);
   const [tracking, setTracking] = useState(false);
   const alarmTriggered = useRef(false);
+  const lastAlertDismiss = useRef(Date.now());
+  const [alarmCount, setAlarmCount] = useState(0);
   const soundObject = useRef(new Audio.Sound());
 
-  // 1. On mount: request permissions and get initial location
   useEffect(() => {
     (async () => {
       try {
@@ -34,7 +73,6 @@ export default function App() {
     })();
   }, []);
 
-  // 2. Load alarm sound on mount
   useEffect(() => {
     const loadSound = async () => {
       try {
@@ -49,10 +87,24 @@ export default function App() {
     };
   }, []);
 
-  // 3. Location tracking effect
+  useEffect(() => {
+    if (!tracking || !destination) return;
+    let interval = setInterval(() => {
+      if (!location || !destination) return;
+      const distance = getDistanceMeters(location, destination);
+      if (
+        distance <= alarmRadius &&
+        !alarmTriggered.current &&
+        Date.now() - lastAlertDismiss.current > 29000
+      ) {
+        triggerAlarm();
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [tracking, destination, alarmRadius, location]);
+
   useEffect(() => {
     let subscription = null;
-
     if (tracking && destination) {
       (async () => {
         try {
@@ -66,7 +118,7 @@ export default function App() {
             (loc) => {
               setLocation(loc.coords);
               const distance = getDistanceMeters(loc.coords, destination);
-              if (distance <= parseInt(alarmRadius, 10)) {
+              if (distance <= alarmRadius && !alarmTriggered.current) {
                 triggerAlarm();
               }
             }
@@ -76,17 +128,13 @@ export default function App() {
         }
       })();
     }
-
     return () => {
-      if (subscription) {
-        subscription.remove();
-      }
+      if (subscription) subscription.remove();
     };
-    // runs whenever tracking/destination/alarmRadius change
   }, [tracking, destination, alarmRadius]);
 
-  // Haversine formula for distance
   const getDistanceMeters = (start, end) => {
+    if (!start || !end) return 0;
     const toRad = (x) => (x * Math.PI) / 180;
     const R = 6378137;
     const dLat = toRad(end.latitude - start.latitude);
@@ -100,119 +148,148 @@ export default function App() {
     return R * c;
   };
 
-  // Handle map press to select destination
   const handleMapPress = (e) => {
     setDestination(e.nativeEvent.coordinate);
     alarmTriggered.current = false;
+    setAlarmCount(0);
   };
-
-  // Start tracking
   const startTracking = () => {
     if (!destination) {
-      Alert.alert('Set destination', 'Please tap on the map to select your destination before starting the alarm.');
+      Alert.alert('Set destination', 'Please tap the map or search an address to select your destination before starting the alarm.');
       return;
     }
-    if (isNaN(parseInt(alarmRadius, 10)) || parseInt(alarmRadius, 10) <= 0) {
-      Alert.alert('Invalid radius', 'Please enter a valid distance in meters for the alarm radius.');
+    if (isNaN(alarmRadius) || alarmRadius < 10) {
+      Alert.alert('Invalid radius', 'Please enter a valid distance (minimum 10 meters) for the alarm radius.');
       return;
     }
     setTracking(true);
     alarmTriggered.current = false;
+    setAlarmCount(0);
   };
-
-  // Trigger alarm
+  const stopTracking = () => {
+    setTracking(false);
+    alarmTriggered.current = false;
+    Vibration.cancel();
+    if (soundObject.current) {
+      soundObject.current.stopAsync().catch(() => {});
+      soundObject.current.setPositionAsync(0).catch(() => {});
+    }
+    setAlarmCount(0);
+  };
   const triggerAlarm = async () => {
     if (alarmTriggered.current) return;
     alarmTriggered.current = true;
+    setAlarmCount((c) => c + 1);
     Vibration.vibrate(2000);
-    try {
-      await soundObject.current.replayAsync();
-    } catch (e) {
-      console.warn('Could not play sound', e);
-    }
-    // Uncomment below ONLY if local notifications work in Expo Go
-    // try {
-    //   await Notifications.scheduleNotificationAsync({
-    //     content: {
-    //       title: "Travering Alarm",
-    //       body: "You're approaching your stop! Get ready!",
-    //       sound: true,
-    //       priority: Notifications.AndroidNotificationPriority.HIGH,
-    //     },
-    //     trigger: null,
-    //   });
-    // } catch (e) {
-    //   console.warn('Could not schedule notification', e);
-    // }
-    Alert.alert("Alarm", "You're near your destination!", [
-      {
-        text: "OK",
-        onPress: () => {
-          alarmTriggered.current = false;
-          setTracking(false);
+    try { await soundObject.current.replayAsync(); } catch (e) {}
+    Alert.alert(
+      "TraveRing Alert",
+      "You're near your destination!\n\n"
+        + (alarmCount > 0 ? `This is alert #${alarmCount + 1}.` : ""),
+      [
+        {
+          text: "Snooze 30s",
+          onPress: async () => {
+            alarmTriggered.current = false;
+            Vibration.cancel();
+            try {
+              await soundObject.current.stopAsync();
+              await soundObject.current.setPositionAsync(0);
+            } catch (e) {}
+            lastAlertDismiss.current = Date.now();
+          },
         },
-      },
-    ]);
+        {
+          text: "Stop Alarm",
+          onPress: async () => {
+            alarmTriggered.current = false;
+            setTracking(false);
+            Vibration.cancel();
+            try {
+              await soundObject.current.stopAsync();
+              await soundObject.current.setPositionAsync(0);
+            } catch (e) {}
+            setAlarmCount(0);
+          },
+          style: "destructive"
+        },
+      ],
+      { cancelable: false }
+    );
   };
-
-  // UI:
 
   if (errorMsg) {
     return (
-      <View style={styles.center}>
-        <Text>{errorMsg}</Text>
+      <View style={[styles.center, { backgroundColor: colors.bg }]}>
+        <StatusBar barStyle={theme === "dark" ? "light-content" : "dark-content"} />
+        <Text style={[styles.errorText, { color: colors.buttonStop }]}>{errorMsg}</Text>
       </View>
     );
   }
-
   if (!location) {
     return (
-      <View style={styles.center}>
-        <Text>Waiting for location permission or GPS fix...</Text>
+      <View style={[styles.center, { backgroundColor: colors.bg }]}>
+        <StatusBar barStyle={theme === "dark" ? "light-content" : "dark-content"} />
+        <Text style={[styles.infoText, { color: colors.text }]}>Waiting for location permission or GPS fix...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <MapView
-        style={styles.map}
-        showsUserLocation={true}
-        followsUserLocation={true}
-        onPress={handleMapPress}
-        initialRegion={{
-          latitude: location.latitude,
-          longitude: location.longitude,
-          latitudeDelta: 0.02,
-          longitudeDelta: 0.02,
-        }}>
-        {destination && <Marker coordinate={destination} title="Destination" />}
-      </MapView>
-
-      <View style={styles.controls}>
-        <Text>Tap on map to select your stop</Text>
-        <View style={styles.row}>
-          <Text>Alarm Radius (meters): </Text>
-          <TextInput
-            style={styles.input}
-            keyboardType="numeric"
-            value={alarmRadius}
-            onChangeText={setAlarmRadius}
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? "padding" : undefined}>
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={[styles.container, { backgroundColor: colors.bg }]}>
+          <StatusBar barStyle={theme === "dark" ? "light-content" : "dark-content"} />
+          <MapSection
+            location={location}
+            destination={destination}
+            onMapPress={handleMapPress}
+            theme={theme}
+            colors={colors}
+          />
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginRight: 18, marginTop: 5 }}>
+            <TouchableOpacity
+              onPress={() => setForceScheme(forceScheme === "dark" ? "light" : "dark")}
+              style={{
+                backgroundColor: colors.card,
+                borderRadius: 14,
+                paddingVertical: 6,
+                paddingHorizontal: 15,
+                borderWidth: 1,
+                borderColor: colors.border,
+                marginBottom: 6,
+                alignItems: 'center'
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "bold" }}>
+                {theme === 'dark' ? "🌙 DARK" : "☀️ LIGHT"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <AlarmControls
+            destination={destination}
+            setDestination={setDestination}
+            location={location}
+            alarmRadius={alarmRadius}
+            setAlarmRadius={setAlarmRadius}
+            tracking={tracking}
+            startTracking={startTracking}
+            stopTracking={stopTracking}
+            getDistanceMeters={getDistanceMeters}
+            theme={theme}
+            colors={colors}
           />
         </View>
-        <Button title={tracking ? "Tracking..." : "Start Alarm"} onPress={startTracking} disabled={tracking} />
-      </View>
-    </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 
-// styles:
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  map: { flex: 3 },
-  controls: { flex: 2, padding: 15, backgroundColor: '#fff', justifyContent: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', marginVertical: 10 },
-  input: { borderColor: '#aaa', borderWidth: 1, paddingHorizontal: 8, width: 80, height: 40, borderRadius: 5 },
-});     
-// h        h        h        h        h        h        h        h        h        h        h        h        
+  container: { flex: 1, justifyContent: 'flex-end' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
+  errorText: { fontSize: 18, fontWeight: '600', textAlign: 'center', padding: 12 },
+  infoText: { fontSize: 17, textAlign: 'center' },
+});
+//
