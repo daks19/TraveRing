@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  TextInput, ActivityIndicator, Keyboard
+  TextInput, ActivityIndicator, Keyboard, Image
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import * as Location from 'expo-location';
+
+// Pre-load the icon to ensure it's available
+const iconSource = require('../assets/images/icon.png');
 
 export default function AlarmControls({
   destination,
@@ -54,12 +57,23 @@ export default function AlarmControls({
       styles.card,
       colors ? { backgroundColor: colors.card, borderColor: colors.border } : {}
     ]}>
-      <Text style={[
-        styles.header,
-        colors ? { color: colors.text } : {}
-      ]}>
-        TraveRing
-      </Text>
+      <View style={styles.headerContainer}>
+        <Image 
+          source={iconSource}
+          style={styles.logo}
+          resizeMode="contain"
+          defaultSource={iconSource}
+          onError={(error) => {
+            console.warn('Logo loading error:', error);
+          }}
+        />
+        <Text style={[
+          styles.header,
+          colors ? { color: colors.text } : {}
+        ]}>
+          TraveRing
+        </Text>
+      </View>
       <View style={{ height: 18 }} />
       <View style={[
         styles.searchRow,
@@ -174,6 +188,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 20,
   },
+  headerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  logo: {
+    width: 32,
+    height: 32,
+    marginRight: 8,
+  },
   header: {
     fontSize: 28,
     fontWeight: 'bold',
@@ -244,4 +269,3 @@ const styles = StyleSheet.create({
   buttonStop: {},
   buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
 });
-//

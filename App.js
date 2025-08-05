@@ -272,6 +272,13 @@ export default function App() {
     setDestination(e.nativeEvent.coordinate);
     alarmTriggered.current = false;
     setAlarmCount(0);
+    
+    // Save to recent destinations
+    try {
+      RecentDestinations.addRecentDestination(e.nativeEvent.coordinate);
+    } catch (error) {
+      console.warn('Error adding to recent destinations:', error);
+    }
   };
   const startTracking = () => {
     if (!destination) {
@@ -489,7 +496,7 @@ export default function App() {
               theme={theme}
               colors={colors}
             />
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginRight: 18, marginTop: 5 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginRight: 18, marginTop: 15 }}>
               <TouchableOpacity
                 onPress={() => setForceScheme(forceScheme === "dark" ? "light" : "dark")}
                 style={{
@@ -499,7 +506,7 @@ export default function App() {
                   paddingHorizontal: 15,
                   borderWidth: 1,
                   borderColor: colors.border,
-                  marginBottom: 6,
+                  marginBottom: 12,
                   alignItems: 'center'
                 }}
                 activeOpacity={0.7}
