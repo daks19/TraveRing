@@ -10,9 +10,23 @@ import {
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { Audio } from 'expo-av';
+import { Asset } from 'expo-asset';
+
+// Configure audio session for the app
+Audio.setAudioModeAsync({
+  allowsRecordingIOS: false,
+  staysActiveInBackground: true,
+  interruptionModeIOS: Audio.INTERRUPTION_MODE_IOS_DUCK_OTHERS,
+  playsInSilentModeIOS: true,
+  shouldDuckAndroid: true,
+  interruptionModeAndroid: Audio.INTERRUPTION_MODE_ANDROID_DUCK_OTHERS,
+  playThroughEarpieceAndroid: false,
+});
 
 import MapSection from './components/MapSection';
 import AlarmControls from './components/AlarmControls';
+import ErrorBoundary from './components/ErrorBoundary';
+import RecentDestinations from './components/RecentDestinations';
 
 
 const LIGHT_COLORS = {
@@ -73,17 +87,75 @@ export default function App() {
     })();
   }, []);
 
+  // Initialize sound with better error handling and retry logic
   useEffect(() => {
+    let isMounted = true;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
     const loadSound = async () => {
+      if (retryCount >= maxRetries) {
+        console.warn('Maximum sound loading retries reached');
+        return;
+      }
+      
       try {
-        await soundObject.current.loadAsync(require('./assets/alarm.mp3'));
+        console.log('Attempting to load sound (attempt ' + (retryCount + 1) + ')');
+        
+        // Ensure sound is unloaded before attempting to load
+        try {
+          const status = await soundObject.current.getStatusAsync();
+          if (status.isLoaded) {
+            await soundObject.current.unloadAsync();
+          }
+        } catch (e) {
+          // Ignore errors during unloading
+        }
+        
+        // Preload asset to ensure it's available
+        const soundAsset = Asset.fromModule(require('./assets/alarm.mp3'));
+        await soundAsset.downloadAsync();
+        
+        // Load the sound with full options
+        await soundObject.current.loadAsync(
+          require('./assets/alarm.mp3'),
+          {
+            isLooping: false,
+            isMuted: false,
+            volume: 1.0,
+            rate: 1.0,
+            shouldCorrectPitch: true
+          }
+        );
+        
+        // Verify loading was successful
+        const loadedStatus = await soundObject.current.getStatusAsync();
+        if (loadedStatus.isLoaded) {
+          console.log('Sound loaded successfully!');
+        } else {
+          throw new Error('Sound loaded but status shows not loaded');
+        }
       } catch (e) {
-        console.warn('Error loading sound', e);
+        console.warn('Error loading sound (attempt ' + (retryCount + 1) + '):', e);
+        retryCount++;
+        
+        // Wait a moment before retrying
+        if (isMounted && retryCount < maxRetries) {
+          setTimeout(loadSound, 1000);
+        }
       }
     };
+    
     loadSound();
+    
     return () => {
-      soundObject.current.unloadAsync();
+      isMounted = false;
+      // Safely unload the sound when component unmounts
+      try {
+        soundObject.current.unloadAsync();
+      } catch (e) {
+        console.warn('Error unloading sound:', e);
+      }
     };
   }, []);
 
@@ -105,9 +177,28 @@ export default function App() {
 
   useEffect(() => {
     let subscription = null;
+    let isMounted = true;
+    
     if (tracking && destination) {
       (async () => {
         try {
+          // First check if permissions are granted
+          let { status } = await Location.getForegroundPermissionsAsync();
+          if (status !== 'granted') {
+            status = (await Location.requestForegroundPermissionsAsync()).status;
+            if (status !== 'granted') {
+              if (isMounted) setErrorMsg('Location permission is required for tracking');
+              return;
+            }
+          }
+          
+          // Request background permissions for Android
+          if (Platform.OS === 'android') {
+            const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+            console.log('Background location permission:', bgStatus);
+          }
+          
+          // Start the location watcher
           subscription = await Location.watchPositionAsync(
             {
               accuracy: Location.Accuracy.Highest,
@@ -116,20 +207,49 @@ export default function App() {
               mayShowUserSettingsDialog: true,
             },
             (loc) => {
-              setLocation(loc.coords);
-              const distance = getDistanceMeters(loc.coords, destination);
-              if (distance <= alarmRadius && !alarmTriggered.current) {
-                triggerAlarm();
+              if (!isMounted) return;
+              
+              try {
+                if (!loc || !loc.coords) {
+                  console.warn('Invalid location data received');
+                  return;
+                }
+                
+                setLocation(loc.coords);
+                
+                if (!destination) {
+                  console.warn('Destination is undefined in watchPosition callback');
+                  return;
+                }
+                
+                const distance = getDistanceMeters(loc.coords, destination);
+                
+                if (distance <= alarmRadius && !alarmTriggered.current) {
+                  triggerAlarm();
+                }
+              } catch (callbackError) {
+                console.error('Error in location callback:', callbackError);
               }
             }
           );
         } catch (e) {
-          setErrorMsg('Error watching location: ' + e.message);
+          console.error('Location watch error:', e);
+          if (isMounted) {
+            setErrorMsg('Error watching location: ' + (e.message || 'Unknown error'));
+          }
         }
       })();
     }
+    
     return () => {
-      if (subscription) subscription.remove();
+      isMounted = false;
+      if (subscription) {
+        try {
+          subscription.remove();
+        } catch (e) {
+          console.warn('Error removing location subscription:', e);
+        }
+      }
     };
   }, [tracking, destination, alarmRadius]);
 
@@ -177,45 +297,136 @@ export default function App() {
     setAlarmCount(0);
   };
   const triggerAlarm = async () => {
+    // Prevent multiple triggers
     if (alarmTriggered.current) return;
-    alarmTriggered.current = true;
-    setAlarmCount((c) => c + 1);
-    Vibration.vibrate(2000);
-    try { await soundObject.current.replayAsync(); } catch (e) {}
-    Alert.alert(
-      "TraveRing Alert",
-      "You're near your destination!\n\n"
-        + (alarmCount > 0 ? `This is alert #${alarmCount + 1}.` : ""),
-      [
-        {
-          text: "Snooze 30s",
-          onPress: async () => {
-            alarmTriggered.current = false;
-            Vibration.cancel();
-            try {
-              await soundObject.current.stopAsync();
-              await soundObject.current.setPositionAsync(0);
-            } catch (e) {}
-            lastAlertDismiss.current = Date.now();
+    
+    try {
+      alarmTriggered.current = true;
+      setAlarmCount((c) => c + 1);
+      
+      // Trigger vibration and handle possible permission issues
+      try {
+        Vibration.vibrate([500, 300, 500, 300, 500, 300, 500], false);
+      } catch (vibrationError) {
+        console.warn('Vibration error:', vibrationError);
+      }
+      
+      // Attempt to play sound with multiple fallbacks
+      let soundPlayed = false;
+      
+      // First attempt: Use the existing sound object
+      try { 
+        const soundStatus = await soundObject.current.getStatusAsync();
+        if (soundStatus.isLoaded) {
+          await soundObject.current.setPositionAsync(0);
+          await soundObject.current.playAsync();
+          soundPlayed = true;
+          console.log('Sound played successfully using existing sound object');
+        }
+      } catch (soundError) {
+        console.warn('Sound playback error with existing sound object:', soundError);
+      }
+      
+      // Second attempt: Reload and play if first attempt failed
+      if (!soundPlayed) {
+        try {
+          // First unload to clear any issues
+          await soundObject.current.unloadAsync().catch(() => {});
+          
+          // Try loading with Asset.fromModule first
+          const soundAsset = Asset.fromModule(require('./assets/alarm.mp3'));
+          await soundAsset.downloadAsync();
+          
+          await soundObject.current.loadAsync(require('./assets/alarm.mp3'));
+          await soundObject.current.playAsync();
+          soundPlayed = true;
+          console.log('Sound played successfully after reloading');
+        } catch (reloadError) {
+          console.warn('Sound reload error:', reloadError);
+        }
+      }
+      
+      // Third attempt: Create a new sound object if all else fails
+      if (!soundPlayed) {
+        try {
+          const { sound } = await Audio.Sound.createAsync(
+            require('./assets/alarm.mp3'),
+            { shouldPlay: true }
+          );
+          sound.setOnPlaybackStatusUpdate(status => {
+            if (status.didJustFinish) {
+              sound.unloadAsync().catch(() => {});
+            }
+          });
+          soundPlayed = true;
+          console.log('Sound played successfully with new sound object');
+        } catch (newSoundError) {
+          console.warn('New sound object error:', newSoundError);
+        }
+      }
+      
+      // Final fallback: Use notifications system if all sound methods fail
+      if (!soundPlayed) {
+        try {
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: 'TraveRing Alert',
+              body: 'You have arrived at your destination!',
+              sound: true,
+              priority: Notifications.AndroidNotificationPriority.MAX,
+            },
+            trigger: null, // Show immediately
+          });
+          console.log('Used notifications as sound fallback');
+        } catch (notifyError) {
+          console.warn('Notification error:', notifyError);
+        }
+      }
+      
+      // Show the alert to the user
+      Alert.alert(
+        "TraveRing Alert",
+        "You're near your destination!\n\n"
+          + (alarmCount > 0 ? `This is alert #${alarmCount + 1}.` : ""),
+        [
+          {
+            text: "Snooze 30s",
+            onPress: async () => {
+              alarmTriggered.current = false;
+              Vibration.cancel();
+              try {
+                await soundObject.current.stopAsync();
+                await soundObject.current.setPositionAsync(0);
+              } catch (e) {
+                console.warn('Error stopping sound:', e);
+              }
+              lastAlertDismiss.current = Date.now();
+            },
           },
-        },
-        {
-          text: "Stop Alarm",
-          onPress: async () => {
-            alarmTriggered.current = false;
-            setTracking(false);
-            Vibration.cancel();
-            try {
-              await soundObject.current.stopAsync();
-              await soundObject.current.setPositionAsync(0);
-            } catch (e) {}
-            setAlarmCount(0);
+          {
+            text: "Stop Alarm",
+            onPress: async () => {
+              alarmTriggered.current = false;
+              setTracking(false);
+              Vibration.cancel();
+              try {
+                await soundObject.current.stopAsync();
+                await soundObject.current.setPositionAsync(0);
+              } catch (e) {
+                console.warn('Error stopping sound:', e);
+              }
+              setAlarmCount(0);
+            },
+            style: "destructive"
           },
-          style: "destructive"
-        },
-      ],
-      { cancelable: false }
-    );
+        ],
+        { cancelable: false }
+      );
+    } catch (error) {
+      console.error('Error in triggerAlarm:', error);
+      // Reset the alarm triggered state in case of error
+      alarmTriggered.current = false;
+    }
   };
 
   if (errorMsg) {
@@ -223,6 +434,33 @@ export default function App() {
       <View style={[styles.center, { backgroundColor: colors.bg }]}>
         <StatusBar barStyle={theme === "dark" ? "light-content" : "dark-content"} />
         <Text style={[styles.errorText, { color: colors.buttonStop }]}>{errorMsg}</Text>
+        <TouchableOpacity
+          style={{
+            backgroundColor: colors.accent,
+            paddingHorizontal: 20,
+            paddingVertical: 12,
+            borderRadius: 10,
+            marginTop: 20
+          }}
+          onPress={() => {
+            setErrorMsg(null);
+            (async () => {
+              try {
+                let { status } = await Location.requestForegroundPermissionsAsync();
+                if (status !== 'granted') {
+                  setErrorMsg('Permission to access location was denied');
+                  return;
+                }
+                let initialLocation = await Location.getCurrentPositionAsync({});
+                setLocation(initialLocation.coords);
+              } catch (e) {
+                setErrorMsg('Error getting location: ' + e.message);
+              }
+            })();
+          }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600', fontSize: 16 }}>Try Again</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -231,58 +469,69 @@ export default function App() {
       <View style={[styles.center, { backgroundColor: colors.bg }]}>
         <StatusBar barStyle={theme === "dark" ? "light-content" : "dark-content"} />
         <Text style={[styles.infoText, { color: colors.text }]}>Waiting for location permission or GPS fix...</Text>
+        <Text style={{ color: colors.faintText, marginTop: 10, textAlign: 'center' }}>
+          Make sure location services are enabled and the app has permission
+        </Text>
       </View>
     );
   }
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? "padding" : undefined}>
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={[styles.container, { backgroundColor: colors.bg }]}>
-          <StatusBar barStyle={theme === "dark" ? "light-content" : "dark-content"} />
-          <MapSection
-            location={location}
-            destination={destination}
-            onMapPress={handleMapPress}
-            theme={theme}
-            colors={colors}
-          />
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginRight: 18, marginTop: 5 }}>
-            <TouchableOpacity
-              onPress={() => setForceScheme(forceScheme === "dark" ? "light" : "dark")}
-              style={{
-                backgroundColor: colors.card,
-                borderRadius: 14,
-                paddingVertical: 6,
-                paddingHorizontal: 15,
-                borderWidth: 1,
-                borderColor: colors.border,
-                marginBottom: 6,
-                alignItems: 'center'
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={{ color: colors.text, fontSize: 14, fontWeight: "bold" }}>
-                {theme === 'dark' ? "🌙 DARK" : "☀️ LIGHT"}
-              </Text>
-            </TouchableOpacity>
+    <ErrorBoundary>
+      <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.bg }} behavior={Platform.OS === 'ios' ? "padding" : undefined}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={[styles.container, { backgroundColor: colors.bg }]}>
+            <StatusBar barStyle={theme === "dark" ? "light-content" : "dark-content"} />
+            <MapSection
+              location={location}
+              destination={destination}
+              onMapPress={handleMapPress}
+              theme={theme}
+              colors={colors}
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginRight: 18, marginTop: 5 }}>
+              <TouchableOpacity
+                onPress={() => setForceScheme(forceScheme === "dark" ? "light" : "dark")}
+                style={{
+                  backgroundColor: colors.card,
+                  borderRadius: 14,
+                  paddingVertical: 6,
+                  paddingHorizontal: 15,
+                  borderWidth: 1,
+                  borderColor: colors.border,
+                  marginBottom: 6,
+                  alignItems: 'center'
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={{ color: colors.text, fontSize: 14, fontWeight: "bold" }}>
+                  {theme === 'dark' ? "🌙 DARK" : "☀️ LIGHT"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <RecentDestinations
+              onDestinationSelect={setDestination}
+              theme={theme}
+              colors={colors}
+              currentLocation={location}
+            />
+            <AlarmControls
+              destination={destination}
+              setDestination={setDestination}
+              location={location}
+              alarmRadius={alarmRadius}
+              setAlarmRadius={setAlarmRadius}
+              tracking={tracking}
+              startTracking={startTracking}
+              stopTracking={stopTracking}
+              getDistanceMeters={getDistanceMeters}
+              theme={theme}
+              colors={colors}
+            />
           </View>
-          <AlarmControls
-            destination={destination}
-            setDestination={setDestination}
-            location={location}
-            alarmRadius={alarmRadius}
-            setAlarmRadius={setAlarmRadius}
-            tracking={tracking}
-            startTracking={startTracking}
-            stopTracking={stopTracking}
-            getDistanceMeters={getDistanceMeters}
-            theme={theme}
-            colors={colors}
-          />
-        </View>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+    </ErrorBoundary>
   );
 }
 

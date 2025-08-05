@@ -4,39 +4,61 @@
     "slug": "TraveRing",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/icon.png",
     "scheme": "travering",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "ios": {
-      "supportsTablet": true
-    },
+    "assetBundlePatterns": [
+      "assets/**/*",
+      "Travering/assets/**/*",
+      "**/*.mp3",
+      "**/*.png"
+    ],
+
     "android": {
+      "package": "com.dakshan.TraveRing",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "VIBRATE"
+      ],
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "softwareKeyboardLayoutMode": "pan"
     },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
-    },
+
     "plugins": [
-      "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "image": "./assets/splash-icon.png",
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
       ]
     ],
-    "experiments": {
-      "typedRoutes": true
-    }
+
+    "web": {
+      "favicon": "./assets/images/favicon.png"
+    },
+
+    "updates": {
+      "url": "https://u.expo.dev/d9687b02-2c7d-4d2f-af46-057292485cb8"
+    },
+
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+
+    "extra": {
+      "eas": {
+        "projectId": "d9687b02-2c7d-4d2f-af46-057292485cb8"
+      }
+    },
+
+    "owner": "dakshan"
   }
 }
