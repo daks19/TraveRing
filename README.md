@@ -1,9 +1,17 @@
 # TraveRing 🛎️🗺️
 
-**TraveRing** is a proximity-based alert app built with **React Native + Expo**.  
-Set a location on the map, define a radius, and get alerted when you approach that area.
+**TraveRing** is a **proximity-based alert app** built with **React Native + Expo**.  
+Set a destination on the map, define your alert radius, and get notified when you're nearby.
 
-Perfect for commuters, travelers, and anyone who needs geo-based reminders.
+Perfect for commuters, travelers, or anyone who needs geo-based reminders without checking their phone constantly.
+
+---
+
+## 🎬 Demo
+
+[![Watch Demo on YouTube](https://img.youtube.com/vi/lSQgcuAIg5U/hqdefault.jpg)](https://youtu.be/lSQgcuAIg5U)
+
+> 🎥 Click the thumbnail or [watch here](https://youtu.be/lSQgcuAIg5U)
 
 ---
 
@@ -16,13 +24,16 @@ Perfect for commuters, travelers, and anyone who needs geo-based reminders.
   Set your preferred distance (in meters) for precise proximity alerts.
 
 - 🔔 **Smart Notification Trigger**  
-  Get notified automatically when you're within range — no need to constantly check.
+  Get notified automatically when you're within range — no need to keep checking.
 
 - 🧭 **Live Location Tracking**  
-  Tracks your movement in real time and keeps the alert updated.
+  Tracks your movement in real time and checks proximity continuously.
 
-- ⚡ **Runs with Expo Go**  
-  No need to build the app — just scan and go.
+- 🌙 **Light / Dark Mode Support**  
+  Automatically adapts to your device's appearance — or toggle it manually.
+
+- ⚡ **Works with Expo Go**  
+  No build required. Just scan and test instantly.
 
 ---
 
