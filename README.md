@@ -15,7 +15,7 @@ Perfect for commuters, travelers, or anyone who needs geo-based reminders withou
 
 ---
 
-> <img width="1080" height="2225" alt="image" src="https://github.com/user-attachments/assets/786184ab-8007-429c-9cbd-9fdb438aa8c6" />
+> <img width="540" height="1112" alt="image" src="https://github.com/user-attachments/assets/786184ab-8007-429c-9cbd-9fdb438aa8c6" />
 
 
 ---
